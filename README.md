@@ -2,6 +2,7 @@
 A Golang implementation of Consistent Hashing and Consistent Hashing With Bounded Loads.
 
 https://en.wikipedia.org/wiki/Consistent_hashing
+
 https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.html
 
 
