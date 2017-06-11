@@ -40,10 +40,6 @@ func Example_bounded() {
 	//
 	// It returns ErrNoHosts if the ring has no hosts in it.
 	//
-	// it returns ErrExhausted if and only if all of the nodes load above the c.MaxLoad
-	// which should never happen if the library is used right
-	//
-	// if ErrExhausted was returned, the value of `host` will be the same as c.Get(host)
 	host, err := c.GetLeast("/app.html")
 	if err != nil {
 		log.Fatal(err)

@@ -19,7 +19,6 @@ import (
 const replicationFactor = 10
 
 var ErrNoHosts = errors.New("no hosts added")
-var ErrExhausted = errors.New("all hosts are overloaded")
 
 type Host struct {
 	Name string
@@ -94,10 +93,6 @@ func (c *Consistent) Get(key string) (string, error) {
 //
 // It returns ErrNoHosts if the ring has no hosts in it.
 //
-// it returns ErrExhausted if and only if all of the nodes load above the c.MaxLoad
-// which should never happen if the library is used right
-//
-// if ErrExhausted was returned, the value of `host` will be the same as c.Get(host)
 func (c *Consistent) GetLeast(key string) (string, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -120,11 +115,11 @@ func (c *Consistent) GetLeast(key string) (string, error) {
 			i = 0
 		}
 		if i == idx-1 {
-			return c.hosts[c.sortedSet[idx]], ErrExhausted
+			return c.hosts[c.sortedSet[idx]], nil
 
 		}
 	}
-	return c.hosts[c.sortedSet[i]], ErrExhausted
+	return c.hosts[c.sortedSet[i]], nil
 }
 
 func (c *Consistent) search(key uint64) int {
@@ -171,6 +166,7 @@ func (c *Consistent) Done(host string) {
 		return
 	}
 	atomic.AddInt64(&c.loadMap[host].Load, -1)
+	atomic.AddInt64(&c.totalLoad, -1)
 }
 
 // Deletes host from the ring
@@ -216,12 +212,13 @@ func (c *Consistent) MaxLoad() int64 {
 }
 
 func (c *Consistent) loadOK(host string) bool {
-	// calcs load
-	if c.totalLoad == 0 {
-		c.totalLoad = 1
+	// a safety check if someone performed c.Done more than needed
+	if c.totalLoad < 0 {
+		c.totalLoad = 0
 	}
+
 	var avgLoadPerNode float64
-	avgLoadPerNode = float64(c.totalLoad / int64(len(c.loadMap)))
+	avgLoadPerNode = float64((c.totalLoad + 1) / int64(len(c.loadMap)))
 	if avgLoadPerNode == 0 {
 		avgLoadPerNode = 1
 	}
