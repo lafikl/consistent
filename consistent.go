@@ -87,7 +87,9 @@ func (c *Consistent) Get(key string) (string, error) {
 }
 
 // It uses Consistent Hashing With Bounded loads
+//
 // https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.html
+//
 // to pick the least loaded host that can serve the key
 //
 // It returns ErrNoHosts if the ring has no hosts in it.
