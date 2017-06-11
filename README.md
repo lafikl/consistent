@@ -33,7 +33,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-    log.Println(host)
+	log.Println(host)
 }
 
 ```
@@ -71,10 +71,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	// increases the load of `host`, we have to call it before sending the request
 	c.Inc(host)
+
 	// send request or do whatever
 	log.Println("send request to", host)
+
 	// call it when the work is done, to update the load of `host`.
 	c.Done(host)
 
