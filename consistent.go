@@ -182,6 +182,16 @@ func (c *Consistent) Remove(host string) bool {
 	return true
 }
 
+// Return the list of hosts in the ring
+func (c *Consistent) Hosts() (hosts []string) {
+	c.RLock()
+	defer c.RUnlock()
+	for k, _ := range c.loadMap {
+		hosts = append(hosts, k)
+	}
+	return hosts
+}
+
 // Returns the loads of all the hosts
 func (c *Consistent) GetLoads() map[string]int64 {
 	loads := map[string]int64{}

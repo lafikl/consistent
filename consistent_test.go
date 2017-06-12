@@ -63,3 +63,53 @@ func TestGetLeast(t *testing.T) {
 	fmt.Println(c.GetLoads())
 
 }
+
+func TestIncDone(t *testing.T) {
+	c := New()
+
+	c.Add("127.0.0.1:8000")
+	c.Add("92.0.0.1:8000")
+
+	host, err := c.GetLeast("92.0.0.1:80001")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c.Inc(host)
+	if c.loadMap[host].Load != 1 {
+		t.Fatalf("host %s load should be 1\n")
+	}
+
+	c.Done(host)
+	if c.loadMap[host].Load != 0 {
+		t.Fatalf("host %s load should be 0\n")
+	}
+
+}
+
+func TestHosts(t *testing.T) {
+	hosts := []string{
+		"127.0.0.1:8000",
+		"92.0.0.1:8000",
+	}
+
+	c := New()
+	for _, h := range hosts {
+		c.Add(h)
+	}
+
+	addedHosts := c.Hosts()
+	for _, h := range hosts {
+		found := false
+		for _, ah := range addedHosts {
+			if h == ah {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("missing host", h)
+		}
+	}
+
+}
