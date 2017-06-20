@@ -46,8 +46,7 @@ func (c *Consistent) Add(host string) {
 	c.Lock()
 	defer c.Unlock()
 
-	h := c.hash(fmt.Sprintf("%s%d", host, 0))
-	if _, ok := c.hosts[h]; ok {
+	if _, ok := c.loadMap[host]; ok {
 		return
 	}
 
