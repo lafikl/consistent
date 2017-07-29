@@ -77,12 +77,12 @@ func TestIncDone(t *testing.T) {
 
 	c.Inc(host)
 	if c.loadMap[host].Load != 1 {
-		t.Fatalf("host %s load should be 1\n")
+		t.Fatalf("host %s load should be 1\n", host)
 	}
 
 	c.Done(host)
 	if c.loadMap[host].Load != 0 {
-		t.Fatalf("host %s load should be 0\n")
+		t.Fatalf("host %s load should be 0\n", host)
 	}
 
 }

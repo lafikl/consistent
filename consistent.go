@@ -7,13 +7,15 @@
 package consistent
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"math"
 	"sort"
 	"sync"
 	"sync/atomic"
+
+	blake2b "github.com/minio/blake2b-simd"
 )
 
 const replicationFactor = 10
@@ -113,12 +115,7 @@ func (c *Consistent) GetLeast(key string) (string, error) {
 		if i >= len(c.hosts) {
 			i = 0
 		}
-		if i == idx-1 {
-			return c.hosts[c.sortedSet[idx]], nil
-
-		}
 	}
-	return c.hosts[c.sortedSet[i]], nil
 }
 
 func (c *Consistent) search(key uint64) int {
@@ -254,7 +251,6 @@ func (c *Consistent) delSlice(val uint64) {
 }
 
 func (c *Consistent) hash(key string) uint64 {
-	h := fnv.New64()
-	h.Write([]byte(key))
-	return h.Sum64()
+	out := blake2b.Sum512([]byte(key))
+	return binary.LittleEndian.Uint64(out[:])
 }
