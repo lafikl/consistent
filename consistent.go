@@ -175,6 +175,7 @@ func (c *Consistent) Remove(host string) bool {
 		delete(c.hosts, h)
 		c.delSlice(h)
 	}
+	delete(c.loadMap, host)
 	return true
 }
 
