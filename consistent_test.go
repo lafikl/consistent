@@ -97,6 +97,7 @@ func TestHosts(t *testing.T) {
 	for _, h := range hosts {
 		c.Add(h)
 	}
+	fmt.Println("hosts in the ring", c.Hosts())
 
 	addedHosts := c.Hosts()
 	for _, h := range hosts {
@@ -111,5 +112,7 @@ func TestHosts(t *testing.T) {
 			t.Fatal("missing host", h)
 		}
 	}
+	c.Remove("127.0.0.1:8000")
+	fmt.Println("hosts in the ring", c.Hosts())
 
 }
