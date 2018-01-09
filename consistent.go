@@ -146,9 +146,11 @@ func (c *Consistent) UpdateLoad(host string, load int64) {
 //
 // should only be used with if you obtained a host with GetLeast
 func (c *Consistent) Inc(host string) {
+	c.Lock()
+	defer c.Unlock()
+
 	atomic.AddInt64(&c.loadMap[host].Load, 1)
 	atomic.AddInt64(&c.totalLoad, 1)
-
 }
 
 // Decrements the load of host by 1
