@@ -169,7 +169,7 @@ func (c *Consistent) Done(host string) {
 func (c *Consistent) Remove(host string) bool {
 	c.Lock()
 	defer c.Unlock()
-
+	atomic.AddInt64(&c.totalLoad, -c.loadMap[host].Load)
 	for i := 0; i < replicationFactor; i++ {
 		h := c.hash(fmt.Sprintf("%s%d", host, i))
 		delete(c.hosts, h)
