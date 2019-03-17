@@ -116,3 +116,18 @@ func TestHosts(t *testing.T) {
 	fmt.Println("hosts in the ring", c.Hosts())
 
 }
+
+func TestDelSlice(t *testing.T) {
+	c := &Consistent{}
+	c.sortedSet = append(c.sortedSet, []uint64{0, 1, 2, 3, 5, 20, 22, 23, 25, 27, 28, 30, 35, 37, 1008, 1009}...)
+
+	fmt.Printf("%+v\n", c.sortedSet)
+
+	c.delSlice(25)
+	c.delSlice(37)
+	c.delSlice(1009)
+	c.delSlice(3)
+	c.delSlice(100000)
+
+	fmt.Printf("%+v\n", c.sortedSet)
+}

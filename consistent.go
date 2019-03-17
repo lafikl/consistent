@@ -244,10 +244,22 @@ func (c *Consistent) loadOK(host string) bool {
 }
 
 func (c *Consistent) delSlice(val uint64) {
-	for i := 0; i < len(c.sortedSet); i++ {
-		if c.sortedSet[i] == val {
-			c.sortedSet = append(c.sortedSet[:i], c.sortedSet[i+1:]...)
+	idx := -1
+	l := 0
+	r := len(c.sortedSet) - 1
+	for l <= r {
+		m := (l + r) / 2
+		if c.sortedSet[m] == val {
+			idx = m
+			break
+		} else if c.sortedSet[m] < val {
+			l = m + 1
+		} else if c.sortedSet[m] > val {
+			r = m - 1
 		}
+	}
+	if idx != -1 {
+		c.sortedSet = append(c.sortedSet[:idx], c.sortedSet[idx+1:]...)
 	}
 }
 
