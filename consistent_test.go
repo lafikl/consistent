@@ -116,3 +116,27 @@ func TestHosts(t *testing.T) {
 	fmt.Println("hosts in the ring", c.Hosts())
 
 }
+
+func TestDelSlice(t *testing.T) {
+	items := []uint64{0, 1, 2, 3, 5, 20, 22, 23, 25, 27, 28, 30, 35, 37, 1008, 1009}
+	deletes := []uint64{25, 37, 1009, 3, 100000}
+
+	c := &Consistent{}
+	c.sortedSet = append(c.sortedSet, items...)
+
+	fmt.Printf("before deletion%+v\n", c.sortedSet)
+
+	for _, val := range deletes {
+		c.delSlice(val)
+	}
+
+	for _, val := range deletes {
+		for _, item := range c.sortedSet {
+			if item == val {
+				t.Fatalf("%d wasn't deleted\n", val)
+			}
+		}
+	}
+
+	fmt.Printf("after deletions: %+v\n", c.sortedSet)
+}
