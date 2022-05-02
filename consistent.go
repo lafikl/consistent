@@ -149,6 +149,9 @@ func (c *Consistent) Inc(host string) {
 	c.Lock()
 	defer c.Unlock()
 
+	if _, ok := c.loadMap[host]; !ok {
+		return
+	}
 	atomic.AddInt64(&c.loadMap[host].Load, 1)
 	atomic.AddInt64(&c.totalLoad, 1)
 }
