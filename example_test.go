@@ -1,18 +1,16 @@
 package consistent_test
 
 import (
-	"log"
-	"testing"
-
 	"github.com/lafikl/consistent"
+	"log"
 )
 
-func Example_consistent(t *testing.T) {
+func Example_consistent() {
 	c := consistent.New()
 
 	// adds the hosts to the ring
-	c.Add("127.0.0.1:8000")
-	c.Add("92.0.0.1:8000")
+	c.Add("127.0.0.1:8000", 3)
+	c.Add("92.0.0.1:8000", 1)
 
 	// Returns the host that owns `key`.
 	//
@@ -31,8 +29,8 @@ func Example_bounded() {
 	c := consistent.New()
 
 	// adds the hosts to the ring
-	c.Add("127.0.0.1:8000")
-	c.Add("92.0.0.1:8000")
+	c.Add("127.0.0.1:8000", 3)
+	c.Add("92.0.0.1:8000", 1)
 
 	// It uses Consistent Hashing With Bounded loads
 	// https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.html

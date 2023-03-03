@@ -1,4 +1,4 @@
-// An implementation of Consistent Hashing and
+// Package consistent An implementation of Consistent Hashing and
 // Consistent Hashing With Bounded Loads.
 //
 // https://en.wikipedia.org/wiki/Consistent_hashing
@@ -15,23 +15,26 @@ import (
 	"sync"
 	"sync/atomic"
 
-	blake2b "github.com/minio/blake2b-simd"
+	"github.com/minio/blake2b-simd"
 )
 
+// Virtual hash node count
 const replicationFactor = 10
 
 var ErrNoHosts = errors.New("no hosts added")
 
 type Host struct {
-	Name string
-	Load int64
+	Name   string
+	Load   int64
+	Weight int64
 }
 
 type Consistent struct {
-	hosts     map[uint64]string
-	sortedSet []uint64
-	loadMap   map[string]*Host
-	totalLoad int64
+	hosts       map[uint64]string
+	sortedSet   []uint64
+	loadMap     map[string]*Host
+	totalLoad   int64
+	totalWeight int64
 
 	sync.RWMutex
 }
@@ -44,7 +47,7 @@ func New() *Consistent {
 	}
 }
 
-func (c *Consistent) Add(host string) {
+func (c *Consistent) Add(host string, weight int64) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -52,7 +55,7 @@ func (c *Consistent) Add(host string) {
 		return
 	}
 
-	c.loadMap[host] = &Host{Name: host, Load: 0}
+	c.loadMap[host] = &Host{Name: host, Load: 0, Weight: weight}
 	for i := 0; i < replicationFactor; i++ {
 		h := c.hash(fmt.Sprintf("%s%d", host, i))
 		c.hosts[h] = host
@@ -66,9 +69,11 @@ func (c *Consistent) Add(host string) {
 		}
 		return false
 	})
+
+	c.totalWeight += weight
 }
 
-// Returns the host that owns `key`.
+// Get Returns the host that owns `key`.
 //
 // As described in https://en.wikipedia.org/wiki/Consistent_hashing
 //
@@ -86,14 +91,13 @@ func (c *Consistent) Get(key string) (string, error) {
 	return c.hosts[c.sortedSet[idx]], nil
 }
 
-// It uses Consistent Hashing With Bounded loads
+// GetLeast It uses Consistent Hashing With Bounded loads
 //
 // https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.html
 //
 // to pick the least loaded host that can serve the key
 //
 // It returns ErrNoHosts if the ring has no hosts in it.
-//
 func (c *Consistent) GetLeast(key string) (string, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -123,14 +127,15 @@ func (c *Consistent) search(key uint64) int {
 		return c.sortedSet[i] >= key
 	})
 
+	// 0 ~ c.sortedSet[0]
 	if idx >= len(c.sortedSet) {
 		idx = 0
 	}
 	return idx
 }
 
-// Sets the load of `host` to the given `load`
-func (c *Consistent) UpdateLoad(host string, load int64) {
+// UpdateLoad Sets the load of `host` to the given `load`
+func (c *Consistent) UpdateLoad(host string, load, weight int64) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -138,11 +143,14 @@ func (c *Consistent) UpdateLoad(host string, load int64) {
 		return
 	}
 	c.totalLoad -= c.loadMap[host].Load
+	c.totalWeight -= c.loadMap[host].Weight
 	c.loadMap[host].Load = load
+	c.loadMap[host].Weight = weight
 	c.totalLoad += load
+	c.totalWeight += weight
 }
 
-// Increments the load of host by 1
+// Inc Increments the load of host by 1
 //
 // should only be used with if you obtained a host with GetLeast
 func (c *Consistent) Inc(host string) {
@@ -156,7 +164,7 @@ func (c *Consistent) Inc(host string) {
 	atomic.AddInt64(&c.totalLoad, 1)
 }
 
-// Decrements the load of host by 1
+// Done Decrements the load of host by 1
 //
 // should only be used with if you obtained a host with GetLeast
 func (c *Consistent) Done(host string) {
@@ -170,7 +178,7 @@ func (c *Consistent) Done(host string) {
 	atomic.AddInt64(&c.totalLoad, -1)
 }
 
-// Deletes host from the ring
+// Remove Deletes host from the ring
 func (c *Consistent) Remove(host string) bool {
 	c.Lock()
 	defer c.Unlock()
@@ -181,20 +189,23 @@ func (c *Consistent) Remove(host string) bool {
 		c.delSlice(h)
 	}
 	delete(c.loadMap, host)
+
+	c.totalWeight -= c.loadMap[host].Weight
+
 	return true
 }
 
-// Return the list of hosts in the ring
+// Hosts Return the list of hosts in the ring
 func (c *Consistent) Hosts() (hosts []string) {
 	c.RLock()
 	defer c.RUnlock()
-	for k, _ := range c.loadMap {
+	for k := range c.loadMap {
 		hosts = append(hosts, k)
 	}
 	return hosts
 }
 
-// Returns the loads of all the hosts
+// GetLoads Returns the loads of all the hosts
 func (c *Consistent) GetLoads() map[string]int64 {
 	loads := map[string]int64{}
 
@@ -204,23 +215,26 @@ func (c *Consistent) GetLoads() map[string]int64 {
 	return loads
 }
 
-// Returns the maximum load of the single host
+// MaxLoad Returns the maximum load of the single host
 // which is:
 // (total_load/number_of_hosts)*1.25
 // total_load = is the total number of active requests served by hosts
 // for more info:
 // https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.html
-func (c *Consistent) MaxLoad() int64 {
+func (c *Consistent) MaxLoad(host string) int64 {
 	if c.totalLoad == 0 {
 		c.totalLoad = 1
 	}
 	var avgLoadPerNode float64
-	avgLoadPerNode = float64(c.totalLoad / int64(len(c.loadMap)))
+	avgLoadPerNode = float64(c.totalLoad / c.totalWeight)
 	if avgLoadPerNode == 0 {
 		avgLoadPerNode = 1
 	}
 	avgLoadPerNode = math.Ceil(avgLoadPerNode * 1.25)
-	return int64(avgLoadPerNode)
+	if host == "" {
+		return int64(avgLoadPerNode)
+	}
+	return int64(avgLoadPerNode) * c.loadMap[host].Weight
 }
 
 func (c *Consistent) loadOK(host string) bool {
@@ -230,18 +244,18 @@ func (c *Consistent) loadOK(host string) bool {
 	}
 
 	var avgLoadPerNode float64
-	avgLoadPerNode = float64((c.totalLoad + 1) / int64(len(c.loadMap)))
+	avgLoadPerNode = float64((c.totalLoad + 1) / c.totalWeight)
 	if avgLoadPerNode == 0 {
 		avgLoadPerNode = 1
 	}
 	avgLoadPerNode = math.Ceil(avgLoadPerNode * 1.25)
 
-	bhost, ok := c.loadMap[host]
+	bHost, ok := c.loadMap[host]
 	if !ok {
-		panic(fmt.Sprintf("given host(%s) not in loadsMap", bhost.Name))
+		panic(fmt.Sprintf("given host(%s) not in loadsMap", bHost.Name))
 	}
 
-	if float64(bhost.Load)+1 <= avgLoadPerNode {
+	if float64(bHost.Load)+1 <= avgLoadPerNode*float64(bHost.Weight) {
 		return true
 	}
 
