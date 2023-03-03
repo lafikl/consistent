@@ -13,16 +13,16 @@ https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.ht
 package main
 
 import (
+	"github.com/dlwm/consistent"
 	"log"
-	"github.com/lafikl/consistent"
 )
 
 func main() {
-	c := consistent.New()
+	c := consistent.New(0)
 
 	// adds the hosts to the ring
-	c.Add("127.0.0.1:8000")
-	c.Add("92.0.0.1:8000")
+	c.Add("127.0.0.1:8000", 1)
+	c.Add("92.0.0.1:8000", 1)
 
 	// Returns the host that owns `key`.
 	//
@@ -47,16 +47,16 @@ func main() {
 package main
 
 import (
+	"github.com/dlwm/consistent"
 	"log"
-	"github.com/lafikl/consistent"
 )
 
 func main() {
-	c := consistent.New()
+	c := consistent.New(0)
 
 	// adds the hosts to the ring
-	c.Add("127.0.0.1:8000")
-	c.Add("92.0.0.1:8000")
+	c.Add("127.0.0.1:8000",1)
+	c.Add("92.0.0.1:8000",1)
 
 	// It uses Consistent Hashing With Bounded loads
 	// https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.html
@@ -83,35 +83,6 @@ func main() {
 ```
 
 
-## Docs
-
-https://godoc.org/github.com/lafikl/consistent
-
-
-
 # License
-
-```
-MIT License
-
-Copyright (c) 2017 Khalid Lafi
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 
 ```

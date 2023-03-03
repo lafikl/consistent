@@ -2,6 +2,7 @@ package consistent
 
 import (
 	"fmt"
+	"strconv"
 	"testing"
 )
 
@@ -45,8 +46,33 @@ func TestGetLeast(t *testing.T) {
 
 	c.Add("127.0.0.1:8000")
 	c.Add("92.0.0.1:8000")
+	c.Add("92.0.0.2:8000")
+	c.Add("92.0.0.3:8000")
+	c.Add("92.0.0.4:8000")
+	c.Add("92.0.0.5:8000")
+	c.Add("92.0.0.6:8000")
+	c.Add("92.0.0.7:8000")
 
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 100000; i++ {
+		a := strconv.Itoa(i)
+		host, err := c.GetLeast(a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c.Inc(host)
+	}
+
+	for k, v := range c.GetLoads() {
+		if v > c.MaxLoad() {
+			t.Fatalf("host %s is overloaded. %d > %d\n", k, v, c.MaxLoad())
+		}
+	}
+	fmt.Println("Max load per node", c.MaxLoad())
+	fmt.Println(c.GetLoads())
+
+	c.Remove("92.0.0.2:8000")
+
+	for i := 0; i < 100000; i++ {
 		host, err := c.GetLeast("92.0.0.1:80001")
 		if err != nil {
 			t.Fatal(err)
@@ -67,8 +93,13 @@ func TestGetLeast(t *testing.T) {
 func TestIncDone(t *testing.T) {
 	c := New()
 
-	c.Add("127.0.0.1:8000")
 	c.Add("92.0.0.1:8000")
+	c.Add("92.0.0.2:8000")
+	c.Add("92.0.0.3:8000")
+	c.Add("92.0.0.4:8000")
+	c.Add("92.0.0.5:8000")
+	c.Add("92.0.0.6:8000")
+	c.Add("92.0.0.7:8000")
 
 	host, err := c.GetLeast("92.0.0.1:80001")
 	if err != nil {
