@@ -6,16 +6,16 @@ import (
 )
 
 func TestAdd(t *testing.T) {
-	c := New()
+	c := New(0)
 
 	c.Add("127.0.0.1:8000", 3)
-	if len(c.sortedSet) != replicationFactor {
+	if len(c.sortedSet) != c.replicationFactor {
 		t.Fatal("vnodes number is incorrect")
 	}
 }
 
 func TestGet(t *testing.T) {
-	c := New()
+	c := New(0)
 
 	c.Add("127.0.0.1:8000", 3)
 	host, err := c.Get("127.0.0.1:8000")
@@ -29,7 +29,7 @@ func TestGet(t *testing.T) {
 }
 
 func TestRemove(t *testing.T) {
-	c := New()
+	c := New(0)
 
 	c.Add("127.0.0.1:8000", 3)
 	c.Remove("127.0.0.1:8000")
@@ -41,7 +41,7 @@ func TestRemove(t *testing.T) {
 }
 
 func TestGetLeast(t *testing.T) {
-	c := New()
+	c := New(0)
 
 	c.Add("127.0.0.1:8000", 3)
 	c.Add("92.0.0.1:8000", 1)
@@ -64,8 +64,33 @@ func TestGetLeast(t *testing.T) {
 
 }
 
+func TestGetNLeast(t *testing.T) {
+	c := New(0)
+
+	c.Add("127.0.0.1:8000", 3)
+	c.Add("92.0.0.1:8000", 1)
+
+	hosts, err := c.GetNLeast("92.0.0.1:80001", 1000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range hosts {
+		c.Inc(host)
+		fmt.Println(host)
+	}
+
+	for k, v := range c.GetLoads() {
+		if v > c.MaxLoad(k) {
+			t.Fatalf("host %s is overloaded. %d > %d\n", k, v, c.MaxLoad(k))
+		}
+	}
+	fmt.Println("Max load per node-weight", c.MaxLoad(""))
+	fmt.Println(c.GetLoads())
+
+}
+
 func TestIncDone(t *testing.T) {
-	c := New()
+	c := New(0)
 
 	c.Add("127.0.0.1:8000", 3)
 	c.Add("92.0.0.1:8000", 1)
@@ -93,7 +118,7 @@ func TestHosts(t *testing.T) {
 		"92.0.0.1:8000",
 	}
 
-	c := New()
+	c := New(0)
 	for _, h := range hosts {
 		c.Add(h, 1)
 	}

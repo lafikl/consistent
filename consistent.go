@@ -18,8 +18,7 @@ import (
 	"github.com/minio/blake2b-simd"
 )
 
-// Virtual hash node count
-const replicationFactor = 10
+const defaultReplicationFactor = 10
 
 var ErrNoHosts = errors.New("no hosts added")
 
@@ -30,21 +29,33 @@ type Host struct {
 }
 
 type Consistent struct {
-	hosts       map[uint64]string
-	sortedSet   []uint64
-	loadMap     map[string]*Host
-	totalLoad   int64
-	totalWeight int64
+	hosts             map[uint64]string
+	sortedSet         []uint64
+	loadMap           map[string]*Host
+	totalLoad         int64
+	totalWeight       int64
+	replicationFactor int // Virtual hash node count
 
 	sync.RWMutex
 }
 
-func New() *Consistent {
-	return &Consistent{
-		hosts:     map[uint64]string{},
-		sortedSet: []uint64{},
-		loadMap:   map[string]*Host{},
+// New default replication factor is 10
+func New(replicationFactor int, hosts ...Host) (hashRing *Consistent) {
+	if replicationFactor == 0 {
+		replicationFactor = defaultReplicationFactor
 	}
+	hashRing = &Consistent{
+		hosts:             map[uint64]string{},
+		sortedSet:         []uint64{},
+		loadMap:           map[string]*Host{},
+		replicationFactor: replicationFactor,
+	}
+
+	for _, host := range hosts {
+		hashRing.Add(host.Name, host.Weight)
+	}
+
+	return
 }
 
 func (c *Consistent) Add(host string, weight int64) {
@@ -56,7 +67,7 @@ func (c *Consistent) Add(host string, weight int64) {
 	}
 
 	c.loadMap[host] = &Host{Name: host, Load: 0, Weight: weight}
-	for i := 0; i < replicationFactor; i++ {
+	for i := 0; i < c.replicationFactor; i++ {
 		h := c.hash(fmt.Sprintf("%s%d", host, i))
 		c.hosts[h] = host
 		c.sortedSet = append(c.sortedSet, h)
@@ -122,6 +133,45 @@ func (c *Consistent) GetLeast(key string) (string, error) {
 	}
 }
 
+// GetNLeast It's just a simple quantification of GetLeast
+//
+// to pick the least loaded hosts that can serve the key
+//
+// It returns ErrNoHosts if the ring has no hosts in it.
+func (c *Consistent) GetNLeast(key string, count int) (hosts []string, err error) {
+	c.RLock()
+	defer c.RUnlock()
+
+	if len(c.hosts) == 0 {
+		return nil, ErrNoHosts
+	}
+
+	h := c.hash(key)
+	idx := c.search(h)
+
+	i := idx
+	for n := 0; n < count; {
+		host := c.hosts[c.sortedSet[i]]
+		if c.loadOK(host) {
+			hosts = append(hosts, host)
+			n++
+			atomic.AddInt64(&c.loadMap[host].Load, 1)
+			atomic.AddInt64(&c.totalLoad, 1)
+		}
+		i++
+		if i >= len(c.hosts) {
+			i = 0
+		}
+	}
+
+	for _, host := range hosts {
+		atomic.AddInt64(&c.loadMap[host].Load, -1)
+		atomic.AddInt64(&c.totalLoad, -1)
+	}
+
+	return
+}
+
 func (c *Consistent) search(key uint64) int {
 	idx := sort.Search(len(c.sortedSet), func(i int) bool {
 		return c.sortedSet[i] >= key
@@ -183,7 +233,7 @@ func (c *Consistent) Remove(host string) bool {
 	c.Lock()
 	defer c.Unlock()
 
-	for i := 0; i < replicationFactor; i++ {
+	for i := 0; i < c.replicationFactor; i++ {
 		h := c.hash(fmt.Sprintf("%s%d", host, i))
 		delete(c.hosts, h)
 		c.delSlice(h)
@@ -215,7 +265,8 @@ func (c *Consistent) GetLoads() map[string]int64 {
 	return loads
 }
 
-// MaxLoad Returns the maximum load of the single host
+// MaxLoad Returns the maximum load of the specified host
+// when the host parameter is empty(""), will be returned according to each weight
 // which is:
 // (total_load/number_of_hosts)*1.25
 // total_load = is the total number of active requests served by hosts

@@ -6,7 +6,7 @@ import (
 )
 
 func Example_consistent() {
-	c := consistent.New()
+	c := consistent.New(0)
 
 	// adds the hosts to the ring
 	c.Add("127.0.0.1:8000", 3)
@@ -26,7 +26,7 @@ func Example_consistent() {
 }
 
 func Example_bounded() {
-	c := consistent.New()
+	c := consistent.New(0)
 
 	// adds the hosts to the ring
 	c.Add("127.0.0.1:8000", 3)
