@@ -27,7 +27,7 @@ func Example_consistent(t *testing.T) {
 	log.Println(host)
 }
 
-func Example_bounded() {
+func Example_bounded(t *testing.T) {
 	c := consistent.New()
 
 	// adds the hosts to the ring
@@ -43,6 +43,7 @@ func Example_bounded() {
 	host, err := c.GetLeast("/app.html")
 	if err != nil {
 		log.Fatal(err)
+		t.Fail()
 	}
 	// increases the load of `host`, we have to call it before sending the request
 	c.Inc(host)
@@ -50,4 +51,5 @@ func Example_bounded() {
 	log.Println("send request to", host)
 	// call it when the work is done, to update the load of `host`.
 	c.Done(host)
+
 }

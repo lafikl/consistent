@@ -11,14 +11,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"sort"
 	"sync"
 	"sync/atomic"
 
+	"github.com/google/btree"
+
 	blake2b "github.com/minio/blake2b-simd"
 )
-
-const replicationFactor = 10
 
 var ErrNoHosts = errors.New("no hosts added")
 
@@ -28,170 +27,201 @@ type Host struct {
 }
 
 type Consistent struct {
-	hosts     map[uint64]string
-	sortedSet []uint64
-	loadMap   map[string]*Host
-	totalLoad int64
+	servers           map[uint64]string
+	clients           *btree.BTree
+	loadMap           map[string]*Host
+	totalLoad         int64
+	replicationFactor int
 
 	sync.RWMutex
 }
 
+type item struct {
+	value uint64
+}
+
+func (i item) Less(than btree.Item) bool {
+	return i.value < than.(item).value
+}
+
 func New() *Consistent {
 	return &Consistent{
-		hosts:     map[uint64]string{},
-		sortedSet: []uint64{},
-		loadMap:   map[string]*Host{},
+		servers:           map[uint64]string{},
+		clients:           btree.New(2),
+		loadMap:           map[string]*Host{},
+		replicationFactor: 1000,
 	}
 }
 
-func (c *Consistent) Add(host string) {
+func NewWithReplicationFactor(replicationFactor int) *Consistent {
+	return &Consistent{
+		servers:           map[uint64]string{},
+		clients:           btree.New(2),
+		loadMap:           map[string]*Host{},
+		replicationFactor: replicationFactor,
+	}
+}
+func (c *Consistent) Add(server string) {
 	c.Lock()
 	defer c.Unlock()
 
-	if _, ok := c.loadMap[host]; ok {
+	if _, ok := c.loadMap[server]; ok {
 		return
 	}
 
-	c.loadMap[host] = &Host{Name: host, Load: 0}
-	for i := 0; i < replicationFactor; i++ {
-		h := c.hash(fmt.Sprintf("%s%d", host, i))
-		c.hosts[h] = host
-		c.sortedSet = append(c.sortedSet, h)
-
+	c.loadMap[server] = &Host{Name: server, Load: 0}
+	for i := 0; i < c.replicationFactor; i++ {
+		h := c.hash(fmt.Sprintf("%s%d", server, i))
+		c.servers[h] = server
+		c.clients.ReplaceOrInsert(item{h})
 	}
-	// sort hashes ascendingly
-	sort.Slice(c.sortedSet, func(i int, j int) bool {
-		if c.sortedSet[i] < c.sortedSet[j] {
-			return true
-		}
-		return false
-	})
 }
 
-// Returns the host that owns `key`.
-//
+// Get returns the server that owns the given client.
 // As described in https://en.wikipedia.org/wiki/Consistent_hashing
-//
-// It returns ErrNoHosts if the ring has no hosts in it.
-func (c *Consistent) Get(key string) (string, error) {
+// It returns ErrNoHosts if the ring has no servers in it.
+func (c *Consistent) Get(client string) (string, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	if len(c.hosts) == 0 {
+	if c.clients.Len() == 0 {
 		return "", ErrNoHosts
 	}
 
-	h := c.hash(key)
-	idx := c.search(h)
-	return c.hosts[c.sortedSet[idx]], nil
+	h := c.hash(client)
+	var foundItem btree.Item
+	c.clients.AscendGreaterOrEqual(item{h}, func(i btree.Item) bool {
+		foundItem = i
+		return false // stop the iteration
+	})
+
+	if foundItem == nil {
+		// If no host found, wrap around to the first one.
+		foundItem = c.clients.Min()
+	}
+
+	host := c.servers[foundItem.(item).value]
+
+	return host, nil
 }
 
-// It uses Consistent Hashing With Bounded loads
-//
+// GetLeast returns the least loaded host that can serve the key.
+// It uses Consistent Hashing With Bounded loads.
 // https://research.googleblog.com/2017/04/consistent-hashing-with-bounded-loads.html
-//
-// to pick the least loaded host that can serve the key
-//
 // It returns ErrNoHosts if the ring has no hosts in it.
-//
-func (c *Consistent) GetLeast(key string) (string, error) {
+func (c *Consistent) GetLeast(client string) (string, error) {
 	c.RLock()
 	defer c.RUnlock()
 
-	if len(c.hosts) == 0 {
+	if c.clients.Len() == 0 {
 		return "", ErrNoHosts
 	}
 
-	h := c.hash(key)
+	h := c.hash(client)
 	idx := c.search(h)
 
 	i := idx
 	for {
-		host := c.hosts[c.sortedSet[i]]
-		if c.loadOK(host) {
-			return host, nil
-		}
-		i++
-		if i >= len(c.hosts) {
-			i = 0
+		x := item{uint64(i)}
+		key := c.clients.Get(x)
+		if key != nil {
+			host := c.servers[key.(*item).value]
+			if c.loadOK(host) {
+				return host, nil
+			}
+			i++
+			if i >= c.clients.Len() {
+				i = 0
+			}
+		} else {
+			return client, nil
 		}
 	}
 }
 
 func (c *Consistent) search(key uint64) int {
-	idx := sort.Search(len(c.sortedSet), func(i int) bool {
-		return c.sortedSet[i] >= key
+	idx := 0
+	found := false
+
+	c.clients.Ascend(func(i btree.Item) bool {
+		if i.(item).value >= key {
+			found = true
+			return false // stop the iteration
+		}
+		idx++
+		return true
 	})
 
-	if idx >= len(c.sortedSet) {
+	if !found {
 		idx = 0
 	}
+
 	return idx
 }
 
-// Sets the load of `host` to the given `load`
-func (c *Consistent) UpdateLoad(host string, load int64) {
+// Sets the load of `server` to the given `load`
+func (c *Consistent) UpdateLoad(server string, load int64) {
 	c.Lock()
 	defer c.Unlock()
 
-	if _, ok := c.loadMap[host]; !ok {
+	if _, ok := c.loadMap[server]; !ok {
 		return
 	}
-	c.totalLoad -= c.loadMap[host].Load
-	c.loadMap[host].Load = load
+	c.totalLoad -= c.loadMap[server].Load
+	c.loadMap[server].Load = load
 	c.totalLoad += load
 }
 
 // Increments the load of host by 1
 //
 // should only be used with if you obtained a host with GetLeast
-func (c *Consistent) Inc(host string) {
+func (c *Consistent) Inc(server string) {
 	c.Lock()
 	defer c.Unlock()
 
-	if _, ok := c.loadMap[host]; !ok {
+	if _, ok := c.loadMap[server]; !ok {
 		return
 	}
-	atomic.AddInt64(&c.loadMap[host].Load, 1)
+	atomic.AddInt64(&c.loadMap[server].Load, 1)
 	atomic.AddInt64(&c.totalLoad, 1)
 }
 
 // Decrements the load of host by 1
 //
 // should only be used with if you obtained a host with GetLeast
-func (c *Consistent) Done(host string) {
+func (c *Consistent) Done(server string) {
 	c.Lock()
 	defer c.Unlock()
 
-	if _, ok := c.loadMap[host]; !ok {
+	if _, ok := c.loadMap[server]; !ok {
 		return
 	}
-	atomic.AddInt64(&c.loadMap[host].Load, -1)
+	atomic.AddInt64(&c.loadMap[server].Load, -1)
 	atomic.AddInt64(&c.totalLoad, -1)
 }
 
 // Deletes host from the ring
-func (c *Consistent) Remove(host string) bool {
+func (c *Consistent) Remove(server string) bool {
 	c.Lock()
 	defer c.Unlock()
 
-	for i := 0; i < replicationFactor; i++ {
-		h := c.hash(fmt.Sprintf("%s%d", host, i))
-		delete(c.hosts, h)
+	for i := 0; i < c.replicationFactor; i++ {
+		h := c.hash(fmt.Sprintf("%s%d", server, i))
+		delete(c.servers, h)
 		c.delSlice(h)
 	}
-	delete(c.loadMap, host)
+	delete(c.loadMap, server)
 	return true
 }
 
-// Return the list of hosts in the ring
-func (c *Consistent) Hosts() (hosts []string) {
+// Return the list of servers in the ring
+func (c *Consistent) Servers() (servers []string) {
 	c.RLock()
 	defer c.RUnlock()
 	for k, _ := range c.loadMap {
-		hosts = append(hosts, k)
+		servers = append(servers, k)
 	}
-	return hosts
+	return servers
 }
 
 // Returns the loads of all the hosts
@@ -223,7 +253,7 @@ func (c *Consistent) MaxLoad() int64 {
 	return int64(avgLoadPerNode)
 }
 
-func (c *Consistent) loadOK(host string) bool {
+func (c *Consistent) loadOK(server string) bool {
 	// a safety check if someone performed c.Done more than needed
 	if c.totalLoad < 0 {
 		c.totalLoad = 0
@@ -236,12 +266,12 @@ func (c *Consistent) loadOK(host string) bool {
 	}
 	avgLoadPerNode = math.Ceil(avgLoadPerNode * 1.25)
 
-	bhost, ok := c.loadMap[host]
+	bserver, ok := c.loadMap[server]
 	if !ok {
-		panic(fmt.Sprintf("given host(%s) not in loadsMap", bhost.Name))
+		panic(fmt.Sprintf("given host(%s) not in loadsMap", bserver.Name))
 	}
 
-	if float64(bhost.Load)+1 <= avgLoadPerNode {
+	if float64(bserver.Load)+1 <= avgLoadPerNode {
 		return true
 	}
 
@@ -249,23 +279,7 @@ func (c *Consistent) loadOK(host string) bool {
 }
 
 func (c *Consistent) delSlice(val uint64) {
-	idx := -1
-	l := 0
-	r := len(c.sortedSet) - 1
-	for l <= r {
-		m := (l + r) / 2
-		if c.sortedSet[m] == val {
-			idx = m
-			break
-		} else if c.sortedSet[m] < val {
-			l = m + 1
-		} else if c.sortedSet[m] > val {
-			r = m - 1
-		}
-	}
-	if idx != -1 {
-		c.sortedSet = append(c.sortedSet[:idx], c.sortedSet[idx+1:]...)
-	}
+	c.clients.Delete(item{val})
 }
 
 func (c *Consistent) hash(key string) uint64 {
